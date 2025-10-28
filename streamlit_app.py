@@ -354,9 +354,9 @@ def main():
             help="Tip: you can OR job titles and require salary like \"$100,000\"."
         )
 
-        
-        GOOGLE_API_KEY = "AIzaSyDUGk2JWYTasiqmSryRIqc-940wqN7u5KA"
-        GOOGLE_CX_ID   = "Y94c93ebecd6904e59"
+
+       GOOGLE_API_KEY = " "
+       GOOGLE_CX_ID   = " "
 
         run_google = st.button("🔎 Search Google")
 
