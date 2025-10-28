@@ -4,6 +4,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from urllib.parse import urlencode
 from datetime import datetime
+from typing import Optional
 
 # ---------------------------
 # Utilities
@@ -168,15 +169,75 @@ def scrape_greenhouse(board_token):
 
 
 # ---------------------------
+# Google Custom Search
+# ---------------------------
+
+def google_job_search(query: str, api_key: str, cx_id: str, num: int = 10) -> pd.DataFrame:
+    """
+    Use Google Programmable Search (Custom Search API) to surface job listings from Lever / Greenhouse.
+
+    query: full Google-style query string, e.g.
+           site:greenhouse.io OR site:lever.co "Validation Engineer" "remote" "$100,000"
+    api_key: your Google API key
+    cx_id:   your Programmable Search Engine ID (must be restricted to lever.co + greenhouse.io)
+    """
+    url = "https://www.googleapis.com/customsearch/v1"
+    params = {
+        "key": api_key,
+        "cx": cx_id,
+        "q": query,
+        "num": num
+    }
+
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        # Return a single-row DataFrame describing the error instead of crashing Streamlit.
+        return pd.DataFrame([{
+            "title": "ERROR",
+            "snippet": f"Google search failed: {e}",
+            "link": ""
+        }])
+
+    rows = []
+    for item in data.get("items", []):
+        rows.append({
+            "title": item.get("title", ""),
+            "snippet": item.get("snippet", ""),
+            "link": item.get("link", "")
+        })
+
+    if not rows:
+        rows.append({
+            "title": "No results",
+            "snippet": "Google returned no items for this query.",
+            "link": ""
+        })
+
+    return pd.DataFrame(rows)
+
+
+# ---------------------------
 # Fetch from multiple companies
 # ---------------------------
 
 def fetch_all_jobs(lever_companies, greenhouse_tokens):
     jobs = []
+
     for c in lever_companies:
-        jobs.extend(scrape_lever(c))
+        try:
+            jobs.extend(scrape_lever(c))
+        except Exception as e:
+            st.warning(f"Error scraping Lever for {c}: {e}")
+
     for g in greenhouse_tokens:
-        jobs.extend(scrape_greenhouse(g))
+        try:
+            jobs.extend(scrape_greenhouse(g))
+        except Exception as e:
+            st.warning(f"Error scraping Greenhouse for {g}: {e}")
+
     return jobs
 
 
@@ -279,6 +340,53 @@ def main():
 
         else:
             st.warning("No matches. Try loosening filters (ex: remove 'Senior', or clear location).")
+
+        # ---------------------------
+        # Google / External Search section
+        # ---------------------------
+        st.markdown("## 🌐 Google-Sourced Job Leads")
+        st.caption("Search Google for Lever / Greenhouse job posts matching niche filters like salary, remote, etc.")
+
+        default_google_query = 'site:greenhouse.io OR site:lever.co "Validation Engineer" "remote" "$100,000"'
+        google_query = st.text_input(
+            "Google search query",
+            value=default_google_query,
+            help="Tip: you can OR job titles and require salary like \"$100,000\"."
+        )
+
+        
+        GOOGLE_API_KEY = "AIzaSyDUGk2JWYTasiqmSryRIqc-940wqN7u5KA"
+        GOOGLE_CX_ID   = "Y94c93ebecd6904e59"
+
+        run_google = st.button("🔎 Search Google")
+
+        google_df = pd.DataFrame()
+        if run_google:
+            if "YOUR_GOOGLE_API_KEY_HERE" in GOOGLE_API_KEY or "YOUR_CUSTOM_SEARCH_ENGINE_ID_HERE" in GOOGLE_CX_ID:
+                st.error("Set GOOGLE_API_KEY and GOOGLE_CX_ID in the code first.")
+            else:
+                google_df = google_job_search(
+                    query=google_query,
+                    api_key=GOOGLE_API_KEY,
+                    cx_id=GOOGLE_CX_ID,
+                    num=20
+                )
+
+                st.write(f"Found {len(google_df)} Google results")
+                st.dataframe(
+                    google_df[["title", "snippet", "link"]],
+                    use_container_width=True
+                )
+
+                csv_google = google_df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Download Google results as CSV",
+                    data=csv_google,
+                    file_name="google_job_results.csv",
+                    mime="text/csv"
+                )
+
+        st.markdown("---")
 
     # sidebar or bottom section: saved jobs
     st.markdown("## ⭐ Saved jobs this session")
